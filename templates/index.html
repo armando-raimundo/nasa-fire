@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NASA FIRMS | Monitorização Global de Incêndios</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+
+<style>
+  :root {
+    --bg-main: #090b10;
+    --bg-card: #121620;
+    --bg-card-hover: #181e2c;
+    --border: #232a3b;
+    --accent: #ff4b2b;
+    --accent-glow: rgba(255, 75, 43, 0.25);
+    --text-main: #f1f5f9;
+    --text-muted: #94a3b8;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Inter', sans-serif; }
+  body { background: var(--bg-main); color: var(--text-main); line-height: 1.5; }
+
+  header {
+    padding: 18px 28px;
+    background: rgba(18, 22, 32, 0.85);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+    flex-wrap: wrap; gap: 15px;
+    position: sticky; top: 0; z-index: 1000;
+  }
+  .brand h1 { font-size: 20px; font-weight: 700; letter-spacing: -0.5px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .brand h1 .fire { color: #ef4444; }
+  .brand h1 .firms { color: var(--accent); }
+  .brand p { font-size: 13px; color: var(--text-muted); margin-top: 2px; }
+
+  .header-actions { display: flex; align-items: center; gap: 15px; }
+  .status-badge {
+    display: flex; align-items: center; gap: 8px;
+    background: #1a2030; padding: 6px 14px; border-radius: 20px;
+    font-size: 13px; color: var(--text-muted); border: 1px solid var(--border);
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #f59e0b; animation: pulse 1.5s infinite; }
+  .dot.ok { background: #10b981; animation: none; }
+  .dot.err { background: #ef4444; animation: none; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  button {
+    background: linear-gradient(135deg, #ff4b2b, #ff416c);
+    color: white; border: none; padding: 10px 20px; border-radius: 8px;
+    cursor: pointer; font-weight: 600; font-size: 14px;
+    transition: transform 0.15s, box-shadow 0.15s;
+    box-shadow: 0 4px 15px var(--accent-glow);
+  }
+  button:hover { transform: translateY(-1px); box-shadow: 0 6px 20px var(--accent-glow); }
+
+  .dashboard-wrap { max-width: 1440px; margin: 0 auto; padding: 20px 24px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 20px; }
+  .card {
+    background: var(--bg-card); padding: 20px; border-radius: 14px;
+    border: 1px solid var(--border); position: relative; overflow: hidden;
+  }
+  .card::before { content: ""; position: absolute; top: 0; left: 0; width: 4px; height: 100%; background: var(--accent); opacity: 0.8; }
+  .card.blue::before { background: #3b82f6; }
+  .card.amber::before { background: #f59e0b; }
+  .card.red::before { background: #ef4444; }
+  .card small { color: var(--text-muted); font-size: 13px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; }
+  .card b { font-size: 32px; font-weight: 700; display: block; margin-top: 8px; color: #fff; }
+
+  /* ---------- MAPA ---------- */
+  .map-wrapper {
+    position: relative; border-radius: 16px; overflow: hidden;
+    border: 1px solid var(--border); margin-bottom: 20px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  }
+  #map { height: 62vh; min-height: 380px; width: 100%; background: #0b0e14; }
+
+  .map-legend {
+    position: absolute; bottom: 24px; left: 14px; z-index: 999;
+    background: rgba(18, 22, 32, 0.92); backdrop-filter: blur(8px);
+    padding: 10px 14px; border-radius: 10px; border: 1px solid var(--border);
+    font-size: 12px; color: var(--text-muted); min-width: 170px;
+  }
+  .map-legend b { color: #fff; font-size: 12px; }
+  .legend-bar { height: 8px; width: 100%; border-radius: 4px; margin: 8px 0 4px; background: linear-gradient(90deg, #fde047, #f97316, #ef4444, #ffffff); }
+  .legend-labels { display: flex; justify-content: space-between; font-size: 11px; }
+  .legend-row { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 11px; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; background: #ff4b2b; border: 1.5px solid #fff; }
+
+  .map-info {
+    position: absolute; top: 14px; left: 56px; z-index: 999;
+    background: rgba(18, 22, 32, 0.92); backdrop-filter: blur(8px);
+    padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border);
+    font-size: 12px; color: var(--text-muted);
+  }
+  .map-info b { color: #fff; }
+
+  /* Controlos do Leaflet no tema escuro */
+  .leaflet-container { font-family: 'Inter', sans-serif; }
+  .leaflet-bar a, .leaflet-bar a:hover {
+    background: #121620; color: #f1f5f9; border-bottom: 1px solid var(--border);
+  }
+  .leaflet-bar a:hover { background: #1c2333; }
+  .leaflet-bar { border: 1px solid var(--border) !important; box-shadow: none !important; }
+  .leaflet-control-layers, .leaflet-control-scale-line {
+    background: rgba(18, 22, 32, 0.92) !important; color: #cbd5e1 !important;
+    border: 1px solid var(--border) !important; border-radius: 8px; box-shadow: none !important;
+  }
+  .leaflet-control-scale-line { border-top: none !important; padding: 2px 6px; font-size: 11px; }
+  .leaflet-control-attribution { background: rgba(9, 11, 16, 0.7) !important; color: #64748b !important; font-size: 10px; }
+  .leaflet-control-attribution a { color: #94a3b8 !important; }
+  .leaflet-popup-content-wrapper, .leaflet-popup-tip {
+    background: #121620; color: #f1f5f9; border: 1px solid var(--border);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  }
+  .leaflet-popup-content { margin: 12px 14px; font-size: 13px; line-height: 1.6; }
+  .leaflet-popup-content b { color: #ff6b4a; }
+  .leaflet-container a.leaflet-popup-close-button { color: #94a3b8; }
+
+  /* Países: rótulos e tooltip */
+  .leaflet-rotulos-pane { pointer-events: none; }
+  .rotulo-pais span {
+    position: absolute; transform: translate(-50%, -50%); white-space: nowrap;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.3px; color: #e2e8f0;
+    text-shadow: 0 0 3px #000, 0 0 6px #000, 0 1px 2px #000; pointer-events: none;
+  }
+  .tip-pais {
+    background: rgba(18, 22, 32, 0.95); color: #f1f5f9; border: 1px solid var(--border);
+    border-radius: 6px; font-size: 12px; font-weight: 600; box-shadow: none; padding: 4px 8px;
+  }
+  .tip-pais::before { display: none; }
+
+  /* Marcador de destaque pulsante */
+  .pulse-marker { position: relative; width: 22px; height: 22px; }
+  .pulse-marker .core {
+    position: absolute; inset: 5px; border-radius: 50%;
+    background: #ff4b2b; border: 2px solid #fff; box-shadow: 0 0 12px #ff4b2b;
+  }
+  .pulse-marker .ring {
+    position: absolute; inset: 0; border-radius: 50%;
+    border: 2px solid #ff4b2b; animation: ring 1.6s ease-out infinite;
+  }
+  @keyframes ring { 0% { transform: scale(0.6); opacity: 1; } 100% { transform: scale(2.4); opacity: 0; } }
+
+  .grid-bottom { display: grid; grid-template-columns: 1.4fr 1fr; gap: 20px; }
+  @media (max-width: 900px) { .grid-bottom { grid-template-columns: 1fr; } .map-info { display: none; } }
+
+  .box { background: var(--bg-card); padding: 22px; border-radius: 14px; border: 1px solid var(--border); overflow-x: auto; }
+  .box h3 { font-size: 16px; font-weight: 600; margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
+  .box-sub { font-size: 13px; color: var(--text-muted); margin-bottom: 14px; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; padding: 10px 12px; font-size: 12px; text-transform: uppercase; color: var(--text-muted); border-bottom: 1px solid var(--border); }
+  td { padding: 11px 12px; border-bottom: 1px solid rgba(35, 42, 59, 0.6); font-size: 14px; }
+  tbody tr { cursor: pointer; transition: background 0.15s; }
+  tbody tr:hover { background: var(--bg-card-hover); }
+  .temp-pill { background: rgba(255, 75, 43, 0.15); color: #ff6b4a; padding: 4px 10px; border-radius: 6px; font-weight: 600; display: inline-block; }
+
+  .step-list { list-style: none; display: flex; flex-direction: column; gap: 14px; margin-top: 12px; }
+  .step-list li { background: rgba(255,255,255,0.02); padding: 12px 14px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.04); font-size: 14px; color: #cbd5e1; }
+  .step-list b { color: #fff; }
+  .source-tag { margin-top: 16px; font-size: 12px; color: var(--text-muted); display: inline-block; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <h1><strong>JIKU<span class="fire">FIRE</span></strong> <span>for NASA</span> <span class="firms">FIRMS</span> <span>| Monitorização Global de Incêndios</span></h1>
+    <p>Deteção térmica em tempo real: VIIRS (NOAA-21, NOAA-20, S-NPP) + MODIS (Terra, Aqua) • NASA Space Apps</p>
+  </div>
+  <div class="header-actions">
+    <div class="status-badge">
+      <div id="status-dot" class="dot"></div>
+      <span id="status">A inicializar...</span>
+    </div>
+    <button onclick="carregar()">↻ Atualizar Dados</button>
+  </div>
+</header>
+
+<div class="dashboard-wrap">
+  <div class="cards">
+    <div class="card blue"><small>Focos Ativos (24h)</small><b id="total">--</b></div>
+    <div class="card amber"><small>Temperatura Média</small><b id="media">--</b></div>
+    <div class="card"><small>Temperatura Máxima</small><b id="max">--</b></div>
+    <div class="card red"><small>Focos Críticos</small><b id="criticos">--</b></div>
+  </div>
+
+  <div class="map-wrapper">
+    <div id="map"></div>
+    <div class="map-info" id="map-info">Aguardando dados…</div>
+    <div class="map-legend">
+      <b>Intensidade Térmica</b>
+      <div class="legend-bar"></div>
+      <div class="legend-labels"><span>Moderado</span><span>Alto</span><span>Crítico</span></div>
+      <div class="legend-row"><span class="legend-dot"></span> Foco crítico (FRP alto ou +120°C)</div>
+    </div>
+  </div>
+
+  <div class="grid-bottom">
+    <div class="box">
+      <h3> Top 10 Focos Mais Quentes do Planeta</h3>
+      <p class="box-sub">Clica numa linha para localizar o foco diretamente no mapa.</p>
+      <table>
+        <thead>
+          <tr><th>Temperatura</th><th>Latitude</th><th>Longitude</th><th>Data (UTC)</th></tr>
+        </thead>
+        <tbody id="top10"></tbody>
+      </table>
+    </div>
+
+    <div class="box">
+      <h3> Arquitetura do Sistema</h3>
+      <p class="box-sub">Como os dados orbitais chegam até este painel:</p>
+      <ul class="step-list">
+        <li><b>1. Captação Orbital:</b> Os sensores infravermelhos <b>VIIRS</b> (375 m) e <b>MODIS</b> (1 km) varrem a superfície terrestre e identificam anomalias térmicas.</li>
+        <li><b>2. Processamento FIRMS:</b> A API da NASA disponibiliza coordenadas, temperatura de brilho (<b>bright_ti4</b> / <b>brightness</b>) em Kelvin e a potência radiativa (<b>FRP</b>).</li>
+        <li><b>3. Análise &amp; Visualização:</b> O servidor Python une as fontes, converte para °C, filtra por confiança, funde deteções duplicadas num raio de ~0,6 km e calcula uma intensidade comparável entre sensores.</li>
+      </ul>
+      <span class="source-tag">Fonte oficial: <b>firms.modaps.eosdis.nasa.gov</b></span>
+    </div>
+  </div>
+</div>
+
+<script>
+const MAX_PONTOS = 30000;      // limite do heatmap
+const MAX_CRITICOS = 1500;     // limite de marcadores críticos
+const LIMITE_CRITICO = 120;    // °C
+
+/* ---------- Mapa base ---------- */
+const bounds = L.latLngBounds([-85, -200], [85, 200]);
+
+const map = L.map('map', {
+  minZoom: 2,
+  maxZoom: 12,
+  zoomSnap: 0.5,
+  zoomControl: true,
+  maxBounds: bounds,
+  maxBoundsViscosity: 0.9,
+  preferCanvas: true
+}).setView([15, 10], 2.5);
+
+// Ordem das camadas: calor (400) < países (420) < rótulos (450) < focos críticos (500)
+map.createPane('paises').style.zIndex = 420;
+map.createPane('rotulos').style.zIndex = 450;
+map.createPane('criticos').style.zIndex = 500;
+
+const escuro = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; OpenStreetMap &copy; CARTO',
+  subdomains: 'abcd', maxZoom: 19
+}).addTo(map);
+
+const satelite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+  attribution: 'Tiles &copy; Esri', maxZoom: 18
+});
+
+
+L.control.scale({ imperial: false, position: 'bottomright' }).addTo(map);
+
+/* ---------- Camadas de dados ---------- */
+let heatLayer = null;
+const criticosLayer = L.layerGroup().addTo(map);
+let markerDestaque = null;
+let layersControl = null;
+const canvasRenderer = L.canvas({ padding: 0.5, pane: 'criticos' });
+
+setTimeout(() => map.invalidateSize(), 200);
+window.addEventListener('resize', () => map.invalidateSize());
+
+/* ---------- Países: fronteiras + nomes ---------- */
+const FONTES_PAISES = [
+  'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_admin_0_countries.geojson',
+  'https://cdn.jsdelivr.net/gh/nvkelso/natural-earth-vector@master/geojson/ne_50m_admin_0_countries.geojson',
+  'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_admin_0_countries.geojson'
+];
+
+const paisesGroup = L.layerGroup().addTo(map);
+const rotulosLayer = L.layerGroup().addTo(paisesGroup);
+let paisesLayer = null;
+let rotulosInfo = [];
+
+const estiloPais = { color: '#9fb3d1', weight: 1, opacity: 0.65, fillColor: '#ffffff', fillOpacity: 0 };
+const estiloPaisHover = { color: '#ffffff', weight: 2, opacity: 1, fillColor: '#ffffff', fillOpacity: 0.08 };
+
+function nomePais(p) {
+  return p.NAME_PT || p.name_pt || p.NAME || p.name || p.ADMIN || 'País';
+}
+
+function poligonosDe(g) {
+  if (g.type === 'Polygon') return [g.coordinates];
+  if (g.type === 'MultiPolygon') return g.coordinates;
+  return [];
+}
+
+function criarRotulos(data) {
+  rotulosLayer.clearLayers();
+  rotulosInfo = [];
+  data.features.forEach(f => {
+    // Rótulo no centro do maior polígono (evita erros em países com ilhas, ex.: EUA, Rússia)
+    let melhor = null, melhorArea = -1;
+    poligonosDe(f.geometry).forEach(poly => {
+      let minx = 1e9, miny = 1e9, maxx = -1e9, maxy = -1e9;
+      poly[0].forEach(([x, y]) => {
+        if (x < minx) minx = x; if (x > maxx) maxx = x;
+        if (y < miny) miny = y; if (y > maxy) maxy = y;
+      });
+      const area = (maxx - minx) * (maxy - miny);
+      if (area > melhorArea) { melhorArea = area; melhor = { cx: (minx + maxx) / 2, cy: (miny + maxy) / 2, w: maxx - minx }; }
+    });
+    if (!melhor) return;
+    const nome = nomePais(f.properties);
+    const marker = L.marker([melhor.cy, melhor.cx], {
+      pane: 'rotulos', interactive: false, keyboard: false,
+      icon: L.divIcon({ className: 'rotulo-pais', html: '<span>' + nome + '</span>', iconSize: [0, 0] })
+    });
+    rotulosInfo.push({ marker, w: melhor.w, len: nome.length });
+  });
+  atualizarRotulos();
+}
+
+// Mostra só os nomes que cabem no país ao nível de zoom atual
+function atualizarRotulos() {
+  const pxPorGrau = 256 * Math.pow(2, map.getZoom()) / 360;
+  rotulosInfo.forEach(r => {
+    const cabe = r.w * pxPorGrau > r.len * 6.5 + 10;
+    const visivel = rotulosLayer.hasLayer(r.marker);
+    if (cabe && !visivel) rotulosLayer.addLayer(r.marker);
+    else if (!cabe && visivel) rotulosLayer.removeLayer(r.marker);
+  });
+}
+map.on('zoomend', atualizarRotulos);
+
+async function carregarPaises() {
+  for (const url of FONTES_PAISES) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+
+      paisesLayer = L.geoJSON(data, {
+        pane: 'paises',
+        style: () => estiloPais,
+        onEachFeature: (f, layer) => {
+          layer.bindTooltip(nomePais(f.properties), { sticky: true, className: 'tip-pais', direction: 'top' });
+          layer.on('mouseover', () => layer.setStyle(estiloPaisHover));
+          layer.on('mouseout', () => paisesLayer.resetStyle(layer));
+        }
+      }).addTo(paisesGroup);
+
+      criarRotulos(data);
+      return true;
+    } catch (e) {
+      console.warn('Fronteiras: falhou ' + url, e);
+    }
+  }
+  console.error('Não foi possível carregar as fronteiras dos países.');
+  return false;
+}
+
+function raioPorZoom(z) { return Math.max(9, Math.min(28, 6 + z * 3)); }
+function blurPorZoom(z) { return Math.max(12, Math.min(26, 8 + z * 2.5)); }
+
+map.on('zoomend', () => {
+  if (heatLayer) {
+    const z = map.getZoom();
+    heatLayer.setOptions({ radius: raioPorZoom(z), blur: blurPorZoom(z) });
+  }
+});
+
+function marcadorPulsante(lat, lon) {
+  return L.marker([lat, lon], {
+    icon: L.divIcon({
+      className: '',
+      html: '<div class="pulse-marker"><div class="ring"></div><div class="core"></div></div>',
+      iconSize: [22, 22], iconAnchor: [11, 11]
+    }),
+    zIndexOffset: 1000
+  });
+}
+
+function popupFoco(lat, lon, temp, data, extra) {
+  let html = `<b>Foco Térmico</b><br>Temperatura: <b>${Number(temp).toFixed(1)}°C</b><br>` +
+             `Coord: ${lat.toFixed(3)}, ${lon.toFixed(3)}` + (data ? `<br>Data (UTC): ${data}` : '');
+  if (extra) {
+    if (extra.acq_hora) html += ` ${extra.acq_hora}`;
+    if (extra.instrumento) html += `<br>Sensor: ${extra.instrumento} · ${extra.satelite}`;
+    if (extra.frp != null) html += `<br>FRP: <b>${extra.frp} MW</b>`;
+    if (extra.n_satelites > 1) html += `<br>Confirmado por ${extra.n_satelites} satélites`;
+  }
+  return html;
+}
+
+function focarNoMapa(lat, lon, temp) {
+  map.flyTo([lat, lon], 7, { duration: 1.5 });
+  if (markerDestaque) map.removeLayer(markerDestaque);
+  markerDestaque = marcadorPulsante(lat, lon).addTo(map)
+    .bindPopup(popupFoco(lat, lon, temp), { offset: [0, -6] });
+  setTimeout(() => markerDestaque && markerDestaque.openPopup(), 1600);
+}
+
+function amostrar(lista, max) {
+  if (lista.length <= max) return lista;
+  const passo = lista.length / max;
+  const out = [];
+  for (let i = 0; i < max; i++) out.push(lista[Math.floor(i * passo)]);
+  return out;
+}
+
+function desenharMapa(d) {
+  if (typeof L.heatLayer !== 'function') throw new Error('Plugin leaflet.heat não foi carregado');
+
+  // Normalização pela gama real dos dados → melhor contraste de cores
+  const temps = d.pontos.map(p => p.temp_celsius);
+  const tMin = Math.min(...temps.slice(0, 50000));
+  const tMax = Math.max(...temps.slice(0, 50000), tMin + 1);
+  const norm = t => Math.max(0.15, Math.min(1, (t - tMin) / (tMax - tMin)));
+
+  const pontos = amostrar(d.pontos, MAX_PONTOS).map(p => [p.latitude, p.longitude, p.intensidade ?? norm(p.temp_celsius)]);
+
+  if (heatLayer) { map.removeLayer(heatLayer); if (layersControl) layersControl.removeLayer(heatLayer); }
+
+  const z = map.getZoom();
+  heatLayer = L.heatLayer(pontos, {
+    radius: raioPorZoom(z), blur: blurPorZoom(z),
+    maxZoom: 8, max: 1.0, minOpacity: 0.35,
+    gradient: { 0.15: '#fde047', 0.4: '#f59e0b', 0.65: '#f97316', 0.85: '#ef4444', 1.0: '#ffffff' }
+  }).addTo(map);
+
+  // Marcadores dos focos críticos (mais quentes primeiro)
+  criticosLayer.clearLayers();
+  const criticos = d.pontos
+    .filter(p => p.critico ?? (p.temp_celsius >= LIMITE_CRITICO))
+    .sort((a, b) => (b.frp ?? b.temp_celsius) - (a.frp ?? a.temp_celsius))
+    .slice(0, MAX_CRITICOS);
+
+  criticos.forEach(p => {
+    L.circleMarker([p.latitude, p.longitude], {
+      renderer: canvasRenderer,
+      radius: 4.5, color: '#ffffff', weight: 1,
+      fillColor: '#ff4b2b', fillOpacity: 0.95
+    }).bindPopup(popupFoco(p.latitude, p.longitude, p.temp_celsius, p.acq_date, p))
+      .addTo(criticosLayer);
+  });
+
+  // Controlo de camadas
+  if (layersControl) map.removeControl(layersControl);
+  layersControl = L.control.layers(
+    { 'Mapa escuro': escuro, 'Satélite': satelite },
+    { 'Países e fronteiras': paisesGroup, 'Mapa de calor': heatLayer, 'Focos críticos': criticosLayer },
+    { collapsed: true, position: 'topright' }
+  ).addTo(map);
+
+  document.getElementById('map-info').innerHTML =
+    `<b>${pontos.length.toLocaleString('pt-PT')}</b> pontos no calor · <b>${criticos.length.toLocaleString('pt-PT')}</b> críticos marcados`;
+}
+
+/* ---------- Carregamento ---------- */
+async function carregar() {
+  const statusEl = document.getElementById('status');
+  const dotEl = document.getElementById('status-dot');
+
+  statusEl.innerText = "A descarregar dados orbitais...";
+  dotEl.className = "dot";
+
+  let d;
+  try {
+    const res = await fetch('/api/fires');
+    d = await res.json().catch(() => { throw new Error('HTTP ' + res.status); });
+  } catch (e) {
+    statusEl.innerText = "Erro de ligação ao servidor";
+    dotEl.className = "dot err";
+    console.error(e);
+    return;
+  }
+
+  if (d.erro) {
+    statusEl.innerText = d.erro;
+    dotEl.className = "dot err";
+    return;
+  }
+
+  try {
+    document.getElementById('total').innerText = d.total.toLocaleString('pt-PT');
+    document.getElementById('media').innerText = d.temp_media + "°C";
+    document.getElementById('max').innerText = d.temp_max + "°C";
+    document.getElementById('criticos').innerText = d.criticos.toLocaleString('pt-PT');
+
+    document.getElementById('top10').innerHTML = d.top10.map(f => `
+      <tr onclick="focarNoMapa(${f.latitude}, ${f.longitude}, ${f.temp_celsius.toFixed(1)})" title="Clica para ver no mapa">
+        <td><span class="temp-pill">${f.temp_celsius.toFixed(1)}°C</span></td>
+        <td>${f.latitude.toFixed(3)}°</td>
+        <td>${f.longitude.toFixed(3)}°</td>
+        <td>${f.acq_date}</td>
+      </tr>
+    `).join('');
+  } catch (e) {
+    statusEl.innerText = "Erro ao processar os dados recebidos";
+    dotEl.className = "dot err";
+    console.error(e);
+    return;
+  }
+
+  try {
+    desenharMapa(d);
+    map.invalidateSize();
+    statusEl.innerText = "Dados sincronizados";
+    dotEl.className = "dot ok";
+  } catch (e) {
+    statusEl.innerText = "Erro ao desenhar o mapa";
+    dotEl.className = "dot err";
+    console.error(e);
+  }
+}
+
+carregarPaises();
+carregar();
+</script>
+</body>
+</html>
