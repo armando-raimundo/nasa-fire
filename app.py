@@ -28,7 +28,7 @@ app = Flask(__name__)
 # ----------------------------------------------------------------------------
 # Configuração
 # ----------------------------------------------------------------------------
-MAP_KEY = "09b0fb12f88011b420547f31cae7b5e3" # os.environ.get("FIRMS_MAP_KEY", "").strip()
+MAP_KEY = os.environ.get("FIRMS_MAP_KEY", "").strip()
 FIRMS_BASE = "https://firms.modaps.eosdis.nasa.gov"
 AREA = "-180,-90,180,90"   # mundo inteiro
 DIAS = 1                   # janela de 24 h (o FIRMS aceita 1 a 5)
@@ -149,7 +149,7 @@ def deduplicar(df):
 
     cluster = np.full(n, -1, dtype=np.int64)
     for i in range(n):
-        if cluster[i] != -1:          # 
+        if cluster[i] != -1:          # já absorvido por um líder de maior prioridade
             continue
         cluster[i] = i
         if len(pares):
@@ -243,6 +243,14 @@ _cache = {"dados": None, "ts": 0.0}
 _lock = threading.Lock()
 
 
+def resposta_com_cache(dados):
+    """Na Vercel cada pedido pode cair numa instância nova (a cache em memória perde-se),
+    por isso a resposta também é guardada na CDN durante CACHE_TTL segundos."""
+    r = jsonify(dados)
+    r.headers["Cache-Control"] = f"public, s-maxage={CACHE_TTL}, stale-while-revalidate={CACHE_TTL}"
+    return r
+
+
 @app.route("/")
 def home():
     return render_template("index.html")
@@ -252,7 +260,7 @@ def home():
 def get_fires():
     with _lock:  # evita vários pedidos simultâneos à NASA
         if _cache["dados"] is not None and time.time() - _cache["ts"] < CACHE_TTL:
-            return jsonify(_cache["dados"])
+            return resposta_com_cache(_cache["dados"])
 
         try:
             dados = construir_dados()
@@ -264,7 +272,7 @@ def get_fires():
             return jsonify({"erro": f"Erro interno: {seguro(e)}"}), 500
 
         _cache.update(dados=dados, ts=time.time())
-        return jsonify(dados)
+        return resposta_com_cache(dados)
 
 
 if __name__ == "__main__":
