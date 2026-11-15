@@ -28,7 +28,7 @@ app = Flask(__name__)
 # ----------------------------------------------------------------------------
 # Configuração
 # ----------------------------------------------------------------------------
-MAP_KEY = os.environ.get("FIRMS_MAP_KEY", "").strip()
+MAP_KEY = "09b0fb12f88011b420547f31cae7b5e3" # os.environ.get("FIRMS_MAP_KEY", "").strip()
 FIRMS_BASE = "https://firms.modaps.eosdis.nasa.gov"
 AREA = "-180,-90,180,90"   # mundo inteiro
 DIAS = 1                   # janela de 24 h (o FIRMS aceita 1 a 5)
@@ -149,7 +149,7 @@ def deduplicar(df):
 
     cluster = np.full(n, -1, dtype=np.int64)
     for i in range(n):
-        if cluster[i] != -1:          # já absorvido por um líder de maior prioridade
+        if cluster[i] != -1:          # 
             continue
         cluster[i] = i
         if len(pares):
